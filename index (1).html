@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulator Persimpangan 3D</title>
+<style>
+  :root{--bg:#0f1720;--panel:#16212d;--line:#2a3a4b;--tx:#e8eef4;--mut:#8da2b5;--g:#3ddc84;--y:#ffc83d;--r:#ff4d4d;--acc:#4cc2ff}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:"Segoe UI",system-ui,sans-serif;color:var(--tx)}
+  body{display:flex;flex-direction:column}
+  #sim{position:relative;flex:1;min-height:0;overflow:hidden}
+  #hmi{background:var(--panel);border-top:1px solid var(--line);max-height:44vh;overflow:auto}
+  .hhead{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px}
+  .hbody{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;padding:12px 14px}
+  .hbody.off{display:none}
+  .hsig{display:flex;gap:12px;align-items:center}
+  .hsig>div{flex:1;font-size:12px;color:var(--mut)}
+  .hsig svg{width:104px;height:104px;flex:none}
+  .hsig svg circle{stroke:#0b0f14;stroke-width:3;fill:#555}
+  .bar{height:6px;border-radius:3px;background:#0e141a;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .25s linear}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start}
+  .stat{border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  .stat span{display:block;font-size:11px;color:var(--mut)}
+  .stat b{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+  .ctl{margin-bottom:8px}
+  .ctl label{display:flex;justify-content:space-between;font-size:12px;color:var(--mut)}
+  .ctl label b{color:var(--tx);font-weight:600}
+  .ctl input{width:100%}
+  button.on{background:#12384d;border-color:var(--acc)}
+  button.danger.on{background:#4a1a1a;border-color:var(--r)}
+  canvas{display:block;touch-action:none;cursor:grab}
+  canvas:active{cursor:grabbing}
+  #hud{position:absolute;top:12px;left:12px;width:250px;background:rgba(22,33,45,.92);border:1px solid var(--line);border-radius:10px;padding:14px}
+  #hud h1{font-size:15px;margin:0 0 10px;font-weight:600}
+  .row{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin:6px 0;color:var(--mut)}
+  .row b{color:var(--tx);font-weight:600}
+  .sig{display:flex;gap:14px;margin:8px 0 12px}
+  .sig div{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px;text-align:center;font-size:12px;color:var(--mut)}
+  .sig i{display:block;width:16px;height:16px;border-radius:50%;margin:6px auto 2px;background:var(--r)}
+  .btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  button{background:#1e2e3e;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+  input[type=range]{width:110px;accent-color:var(--acc)}
+  #hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--mut);background:rgba(22,33,45,.8);padding:5px 12px;border-radius:20px}
+  @media(max-width:560px){#hud{width:210px;padding:10px}#hint{display:none}}
+</style>
+</head>
+<body>
+<div id="sim">
+<div id="hud">
+  <h1>Tampilan 3D</h1>
+  
+  <div class="btns">
+    <button id="bNight">Malam</button>
+    <button id="bRot">Putar otomatis</button>
+    <button id="bTop">Tampak atas</button>
+    <button id="bIso">Tampak miring</button>
+  </div>
+</div>
+<div id="hint">Seret untuk memutar · roda mouse untuk zoom</div>
+</div>
+<section id="hmi" aria-label="HMI pengaturan lalu lintas">
+  <div class="hhead"><b>HMI · Pengaturan Lalu Lintas</b><button id="hToggle">Sembunyikan</button></div>
+  <div class="hbody" id="hbody">
+    <div class="hsig">
+      <svg viewBox="0 0 300 300" role="img" aria-label="Status lampu tiap lengan persimpangan">
+        <rect x="0" y="120" width="300" height="60" fill="#262d35"/><rect x="120" y="0" width="60" height="300" fill="#262d35"/>
+        <circle id="lN" cx="128" cy="100" r="14"/><circle id="lS" cx="172" cy="200" r="14"/>
+        <circle id="lW" cx="100" cy="172" r="14"/><circle id="lE" cx="200" cy="128" r="14"/>
+      </svg>
+      <div><span id="phase">Memuat…</span><div class="bar"><i id="prog"></i></div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Mobil menunggu</span><b id="wait">–</b></div>
+      <div class="stat"><span>Lolos persimpangan</span><b id="thru">–</b></div>
+      <div class="stat"><span>Throughput</span><b id="rate">–</b></div>
+      <div class="stat"><span>Kendaraan aktif</span><b id="cars">–</b></div>
+    </div>
+    <div>
+      <div class="ctl"><label for="s_green">Durasi hijau <b id="v_green">8 dtk</b></label><input id="s_green" type="range" min="4" max="20"></div>
+      <div class="ctl"><label for="s_yellow">Durasi kuning <b id="v_yellow">2 dtk</b></label><input id="s_yellow" type="range" min="1" max="5"></div>
+      <div class="ctl"><label for="s_allred">Semua merah <b id="v_allred">2 dtk</b></label><input id="s_allred" type="range" min="1" max="5"></div>
+      <div class="ctl"><label for="s_density">Kepadatan (mobil/lengan) <b id="v_density">8</b></label><input id="s_density" type="range" min="3" max="14"></div>
+    </div>
+    <div>
+      <div class="row">Siklus penuh<b id="cycle">–</b></div>
+      <div class="btns">
+        <button id="mAuto">Otomatis</button>
+        <button id="mRed" class="danger">Semua merah (darurat)</button>
+        <button id="bPause">Jeda</button>
+        <button id="bReset">Reset hitungan</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+const ROAD = 7;            // setengah lebar jalan
+const STOP = -13.3;        // posisi garis henti (koordinat p), sebelum zebra cross
+const LEN = 110;           // panjang jalan dari pusat
+const CAR_L = 4.2;
+
+// ---------- scene ----------
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+document.getElementById('sim').appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, .5, 600);
+
+const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4a5560, .7); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, .9);
+sun.position.set(60,90,40); sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-90,right:90,top:90,bottom:-90,near:10,far:260});
+scene.add(sun);
+
+// ---------- tanah, jalan, marka ----------
+const M = (c,o={}) => new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.9},o));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(500,500), M(0x59636b));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+
+function box(w,h,d,mat,x,y,z,shadow=true){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z); m.castShadow = shadow; m.receiveShadow = true; scene.add(m); return m;
+}
+const asphalt = M(0x262a2f,{roughness:1});
+box(2*LEN,.1,2*ROAD,asphalt,0,.05,0,false);
+box(2*ROAD,.11,2*LEN,asphalt,0,.055,0,false);
+const white = M(0xf2f2f2), yellow = M(0xf2c230);
+// garis tengah putus-putus
+for(let i=-LEN+4;i<LEN;i+=8){
+  if(Math.abs(i)>ROAD+1){
+    box(4,.02,.25,yellow,i,.13,0,false);
+    box(.25,.02,4,yellow,0,.13,i,false);
+  }
+}
+// garis henti & zebra cross
+for(const d of [-1,1]){
+  box(.5,.02,ROAD-.3,white,d*13.3,.13,-ROAD/2,false);
+  box(.5,.02,ROAD-.3,white,-d*13.3,.13,ROAD/2,false);
+  box(ROAD-.3,.02,.5,white,ROAD/2,.13,d*13.3,false);
+  box(ROAD-.3,.02,.5,white,-ROAD/2,.13,-d*13.3,false);
+  for(let k=-ROAD+1;k<=ROAD-1;k+=1.6){
+    box(2.2,.02,.9,white,d*10.6,.13,k,false);
+    box(.9,.02,2.2,white,k,.13,d*10.6,false);
+  }
+}
+// trotoar
+const walk = M(0x9aa0a5);
+for(const sx of [-1,1]) for(const sz of [-1,1]){
+  const w = LEN-ROAD;
+  box(w,.3,3,walk,sx*(ROAD+w/2),.15,sz*(ROAD+1.5));
+  box(3,.3,w,walk,sx*(ROAD+1.5),.15,sz*(ROAD+w/2));
+}
+
+// ---------- gedung ----------
+function winCanvas(lit){
+  const c = document.createElement('canvas'); c.width=64; c.height=128;
+  const g = c.getContext('2d');
+  g.fillStyle = lit ? '#000' : '#2c3e52'; g.fillRect(0,0,64,128);
+  let seed = 7;
+  const rnd = () => (seed = (seed*16807)%2147483647)/2147483647;
+  for(let y=6;y<124;y+=12) for(let x=6;x<60;x+=12){
+    const on = rnd()>.45;
+    g.fillStyle = lit ? (on?'#ffd98a':'#000') : (on?'#9fc4e6':'#1c2a3a');
+    g.fillRect(x,y,7,7);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+const dayTex = winCanvas(false), litTex = winCanvas(true);
+const buildMats = [];
+let s2 = 42; const r2 = () => (s2 = (s2*16807)%2147483647)/2147483647;
+const tones = [0x8b98a6,0x7a8794,0xa3a8ad,0x6f7f91,0x95877b];
+for(let x=-100;x<=100;x+=22) for(let z=-100;z<=100;z+=22){
+  if(Math.abs(x)<ROAD+9 || Math.abs(z)<ROAD+9) continue;
+  if(x>=20 && x<=60 && z<=-20 && z>=-60) continue;   // lahan taman
+  const near = Math.hypot(x,z) < 70;
+  const w = 11+r2()*6, d = 11+r2()*6;
+  const h = (near ? 22 : 10) + r2()*(near?38:14);
+  const t1 = dayTex.clone(), t2 = litTex.clone();
+  [t1,t2].forEach(t => {t.repeat.set(Math.round(w/5),Math.round(h/5)); t.needsUpdate = true;});
+  const mat = new THREE.MeshStandardMaterial({color:tones[Math.floor(r2()*tones.length)],map:t1,emissive:0xffffff,emissiveMap:t2,emissiveIntensity:0,roughness:.7});
+  buildMats.push(mat);
+  box(w,h,d,mat,x+(r2()-.5)*3,h/2,z+(r2()-.5)*3);
+}
+// pohon kecil di trotoar
+for(const sx of [-1,1]) for(const sz of [-1,1]) for(let k=18;k<LEN-5;k+=14){
+  for(const [a,b] of [[sx*(ROAD+1.5),sz*k],[sx*k,sz*(ROAD+1.5)]]){
+    box(.3,2,.3,M(0x5a3d26),a,1.3,b);
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(1.4,10,8),M(0x2f7d4a));
+    crown.position.set(a,3.4,b); crown.castShadow = true; scene.add(crown);
+  }
+}
+
+// ---------- lampu lalu lintas ----------
+const toXZ = (axis,a,l) => axis==='x' ? [a,l] : [l,a];
+const approaches = [
+  {axis:'x',d: 1,lat:-2.5,grp:'EW'},
+  {axis:'x',d:-1,lat: 2.5,grp:'EW'},
+  {axis:'z',d: 1,lat: 2.5,grp:'NS'},
+  {axis:'z',d:-1,lat:-2.5,grp:'NS'}
+];
+const lamps = {NS:[],EW:[]};
+const lampMat = c => new THREE.MeshStandardMaterial({color:0x222222,emissive:c,emissiveIntensity:0,roughness:.4});
+approaches.forEach(ap => {
+  const a = ap.d*(STOP-1.2), l = Math.sign(ap.lat)*(ROAD+.6);
+  const [px,pz] = toXZ(ap.axis,a,l);
+  box(.25,6,.25,M(0x333a40),px,3,pz);
+  const head = new THREE.Group(); head.position.set(px,5.4,pz); scene.add(head);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(ap.axis==='x'?.7:.8,2.2,ap.axis==='x'?.8:.7),M(0x15191d));
+  body.castShadow = true; head.add(body);
+  const set = {};
+  [['r',0xff2a2a,.7],['y',0xffc400,0],['g',0x22e07a,-.7]].forEach(([k,c,y]) => {
+    const m = lampMat(c);
+    const s = new THREE.Mesh(new THREE.SphereGeometry(.27,14,10),m);
+    const off = -ap.d*.35;
+    s.position.set(ap.axis==='x'?off:0,y,ap.axis==='z'?off:0);
+    head.add(s); set[k] = m;
+  });
+  lamps[ap.grp].push(set);
+});
+// lampu jalan
+const streetLampMats = [];
+[[-1,-1],[1,1],[-1,1],[1,-1]].forEach(([sx,sz]) => {
+  const x = sx*(ROAD+1.5), z = sz*(ROAD+22);
+  [[x,z],[z,x]].forEach(([px,pz]) => {
+    box(.2,9,.2,M(0x444b52),px,4.5,pz);
+    const m = new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffe9a8,emissiveIntensity:0});
+    const b = new THREE.Mesh(new THREE.SphereGeometry(.45,10,8),m); b.position.set(px,9.2,pz); scene.add(b);
+    streetLampMats.push(m);
+  });
+});
+
+// ---------- taman (kuadran timur laut) ----------
+const PX0=10,PX1=66,PZ0=-66,PZ1=-10,PC=[38,-38];
+box(PX1-PX0,.12,PZ1-PZ0,M(0x4f9a4a),(PX0+PX1)/2,.06,(PZ0+PZ1)/2,false);
+const stone = M(0xcfc6b4);
+box(3,.05,PZ1-PZ0,stone,PC[0],.14,(PZ0+PZ1)/2,false);
+box(PX1-PX0,.05,3,stone,(PX0+PX1)/2,.14,PC[1],false);
+const plaza = new THREE.Mesh(new THREE.CylinderGeometry(10,10,.06,40),stone);
+plaza.position.set(PC[0],.15,PC[1]); plaza.receiveShadow = true; scene.add(plaza);
+// kolam + air mancur
+const water = new THREE.Mesh(new THREE.CylinderGeometry(5.3,5.3,.5,36),new THREE.MeshStandardMaterial({color:0x3a8fd1,roughness:.15,metalness:.3}));
+water.position.set(PC[0],.3,PC[1]); scene.add(water);
+const rim = new THREE.Mesh(new THREE.TorusGeometry(5.4,.4,8,36),stone);
+rim.rotation.x = Math.PI/2; rim.position.set(PC[0],.5,PC[1]); rim.castShadow = true; scene.add(rim);
+const pil = new THREE.Mesh(new THREE.CylinderGeometry(.35,.5,2.4,10),stone); pil.position.set(PC[0],1.5,PC[1]); pil.castShadow = true; scene.add(pil);
+const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.5,.6,.5,16),stone); bowl.position.set(PC[0],2.7,PC[1]); scene.add(bowl);
+const dropM = new THREE.MeshStandardMaterial({color:0x9bd4ff,emissive:0x3a6f9f,transparent:true,opacity:.8});
+const drops = [];
+for(let i=0;i<16;i++){ const m = new THREE.Mesh(new THREE.SphereGeometry(.14,6,5),dropM); scene.add(m); drops.push({m,a:i/16*Math.PI*2,o:(i%4)/4}); }
+function animateFountain(t){
+  drops.forEach(d => { const u=(t*.7+d.o)%1, r=.4+u*2.6;
+    d.m.position.set(PC[0]+Math.cos(d.a)*r, 3+7.8*u*(1-u)-u*2.4, PC[1]+Math.sin(d.a)*r); });
+}
+// pohon
+const trunkG = new THREE.CylinderGeometry(.25,.35,2.4,6), roundG = new THREE.SphereGeometry(1.9,10,8), coneG = new THREE.ConeGeometry(1.8,4.5,8);
+const trunkM = M(0x5a3d26), leafMs = [M(0x2f7d4a),M(0x3d9a52),M(0x5aa84a)], pineM = M(0x1f5a3a);
+function parkTree(x,z){
+  const t = new THREE.Mesh(trunkG,trunkM); t.position.set(x,1.3,z); t.castShadow = true; scene.add(t);
+  const pine = r2() < .4;
+  const c = new THREE.Mesh(pine?coneG:roundG, pine?pineM:leafMs[Math.floor(r2()*3)]);
+  c.position.set(x,pine?4.4:3.9,z); c.castShadow = true; scene.add(c);
+}
+for(let n=0,tries=0;n<30 && tries<400;tries++){
+  const x = PX0+3+r2()*(PX1-PX0-6), z = PZ0+3+r2()*(PZ1-PZ0-6);
+  if(Math.abs(x-PC[0])<4 || Math.abs(z-PC[1])<4 || Math.hypot(x-PC[0],z-PC[1])<13) continue;
+  parkTree(x,z); n++;
+}
+// bunga
+const flM = [0xff6b81,0xffd166,0xf78fb3,0xffffff,0xb388ff].map(c => M(c)), flG = new THREE.SphereGeometry(.3,6,5);
+for(let i=0;i<60;i++){
+  const a = i/60*Math.PI*2, rr = 11.5+(i%3)*.8;
+  const x = PC[0]+Math.cos(a)*rr, z = PC[1]+Math.sin(a)*rr;
+  if(Math.abs(x-PC[0])<3 || Math.abs(z-PC[1])<3) continue;
+  const f = new THREE.Mesh(flG,flM[i%5]); f.position.set(x,.3,z); scene.add(f);
+}
+// bangku + lampu taman
+const woodM = M(0x8a5a33), ironM = M(0x333a40);
+function bench(x,z,ry){
+  const g = new THREE.Group(); g.position.set(x,.1,z); g.rotation.y = ry;
+  const parts = [[1.9,.1,.6,0,.5,0,woodM],[1.9,.5,.08,0,.85,-.28,woodM],[.1,.5,.5,-.8,.25,0,ironM],[.1,.5,.5,.8,.25,0,ironM]];
+  parts.forEach(([w,h,d,px,py,pz,mat]) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(px,py,pz); m.castShadow = true; g.add(m); });
+  scene.add(g);
+}
+const benches = [[41.4,-24,-Math.PI/2],[34.6,-52,Math.PI/2],[24,-41.4,0],[52,-34.6,Math.PI]];
+benches.forEach(b => bench(...b));
+[[28.5,-28.5],[47.5,-28.5],[28.5,-47.5],[47.5,-47.5]].forEach(([x,z]) => {
+  box(.2,5,.2,ironM,x,2.5,z);
+  const m = new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffe9a8,emissiveIntensity:0});
+  const b = new THREE.Mesh(new THREE.SphereGeometry(.4,10,8),m); b.position.set(x,5.1,z); scene.add(b);
+  streetLampMats.push(m);
+});
+
+// ---------- manusia ----------
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const skinC = [0xf2c9a0,0xd9a273,0xa86f48,0x7a4e32],
+      shirtC = [0xd64545,0x3b82c4,0xf2b630,0x4cae6a,0x8e5bc9,0xe9e9e9,0x2a2f36,0xe07a3a],
+      pantC = [0x2b3445,0x3e4a5c,0x5a4a3a,0x1f2a38],
+      hairM = [0x1a1a1a,0x4a3020,0x8a6a3a,0x777777].map(c => M(c));
+const hG = {torso:new THREE.BoxGeometry(.5,.6,.28), head:new THREE.SphereGeometry(.14,10,8),
+  hair:new THREE.SphereGeometry(.155,10,6,0,Math.PI*2,0,Math.PI/2),
+  leg:new THREE.BoxGeometry(.18,.8,.2), arm:new THREE.BoxGeometry(.12,.6,.14)};
+function makeHuman(){
+  const g = new THREE.Group(), sk = M(pick(skinC)), sh = M(pick(shirtC)), pn = M(pick(pantC));
+  const add = (geo,mat,y,cast) => { const m = new THREE.Mesh(geo,mat); m.position.y = y; m.castShadow = !!cast; g.add(m); };
+  add(hG.torso,sh,1.1,true); add(hG.head,sk,1.57); add(hG.hair,pick(hairM),1.58);
+  const limb = (geo,mat,x,y,len) => { const p = new THREE.Group(); p.position.set(x,y,0);
+    const m = new THREE.Mesh(geo,mat); m.position.y = -len/2; m.castShadow = true; p.add(m); g.add(p); return p; };
+  g.userData = {legL:limb(hG.leg,pn,-.12,.8,.8),legR:limb(hG.leg,pn,.12,.8,.8),
+                armL:limb(hG.arm,sh,-.31,1.38,.6),armR:limb(hG.arm,sh,.31,1.38,.6)};
+  g.scale.setScalar(1.25); scene.add(g); return g;
+}
+// orang duduk di bangku
+benches.slice(0,3).forEach(([x,z,ry]) => {
+  const h = makeHuman(), u = h.userData;
+  u.legL.rotation.x = u.legR.rotation.x = -1.5; u.armL.rotation.x = u.armR.rotation.x = -.5;
+  h.position.set(x,-.35,z); h.rotation.y = ry;
+});
+
+const arms = [{axis:'x',sgn:1,grp:'EW'},{axis:'x',sgn:-1,grp:'EW'},{axis:'z',sgn:1,grp:'NS'},{axis:'z',sgn:-1,grp:'NS'}];
+const peds = [], redT = {NS:0,EW:0};
+// pejalan kaki penyeberang: menunggu lampu kendaraan merah, lalu menyeberang di zebra cross
+function newRoute(p){
+  const a = arms[Math.floor(Math.random()*4)], s = Math.random()<.5?-1:1, inward = Math.random()<.5;
+  const far = a.sgn*(22+Math.random()*10), near = a.sgn*8.4, cx = a.sgn*10.6;
+  const A = inward?far:near, B = inward?near:far, P = (aa,l) => toXZ(a.axis,aa,l);
+  p.axis = a.axis; p.f = 0; p.i = 1; p.cross = false; p.need = 15.8/p.speed;
+  p.route = [{pt:P(A,s*9.3)},{pt:P(cx,s*7.9),gate:a.grp},{pt:P(cx,-s*7.9)},{pt:P(B,-s*9.3)}];
+  p.mesh.position.set(p.route[0].pt[0],.3,p.route[0].pt[1]);
+}
+for(let i=0;i<16;i++){
+  const p = {mesh:makeHuman(),kind:'city',speed:1.7+Math.random()*.4,ph:Math.random()*6};
+  newRoute(p); p.delay = Math.random()*12; peds.push(p);
+}
+// pejalan kaki di taman: jalan acak mengikuti jalur setapak
+const nodes = []; for(let k=0;k<8;k++){ const a = k*Math.PI/4; nodes.push([PC[0]+Math.cos(a)*7.5,PC[1]+Math.sin(a)*7.5]); }
+nodes.push([64,-38],[38,-12],[12,-38],[38,-64]);
+const adj = []; for(let k=0;k<8;k++) adj[k] = [(k+1)%8,(k+7)%8];
+adj[0].push(8); adj[2].push(9); adj[4].push(10); adj[6].push(11);
+adj[8]=[0]; adj[9]=[2]; adj[10]=[4]; adj[11]=[6];
+function pickNext(p){ const a = adj[p.node].filter(x => x!==p.prev), l = a.length?a:adj[p.node]; return l[Math.floor(Math.random()*l.length)]; }
+for(let i=0;i<12;i++){
+  const n = Math.floor(Math.random()*12);
+  const p = {mesh:makeHuman(),kind:'park',speed:.9+Math.random()*.5,ph:Math.random()*6,node:n,prev:-1,
+             off:[(Math.random()-.5)*1.6,(Math.random()-.5)*1.6],pause:Math.random()*4};
+  p.next = pickNext(p); p.mesh.position.set(nodes[n][0]+p.off[0],.16,nodes[n][1]+p.off[1]); peds.push(p);
+}
+function ttg(g){            // detik sampai kelompok g hijau
+  if(cfg.mode==='allred') return Infinity;
+  const P = phases(); let t = P[pi].t-pt, i = (pi+1)%P.length, n = 0;
+  while(P[i][g]!=='g' && n++<8){ t += P[i].t; i = (i+1)%P.length; }
+  return t;
+}
+const canCross = (g,need) => redT[g] >= 1.2 && ttg(g) >= need+.5;
+function animLimbs(p,moving,dt){
+  const u = p.mesh.userData; if(moving) p.ph += dt*p.speed*3.6;
+  const a = moving ? Math.sin(p.ph)*.7 : 0;
+  u.legL.rotation.x = a; u.legR.rotation.x = -a; u.armL.rotation.x = -a*.7; u.armR.rotation.x = a*.7;
+}
+function updatePeds(dt){
+  for(const g of ['NS','EW']) redT[g] = state[g]==='r' ? redT[g]+dt : 0;
+  peds.forEach(p => {
+    const m = p.mesh;
+    if(p.kind==='park'){
+      if(p.pause>0){ p.pause -= dt; animLimbs(p,false,dt); return; }
+      const dx = nodes[p.next][0]+p.off[0]-m.position.x, dz = nodes[p.next][1]+p.off[1]-m.position.z, d = Math.hypot(dx,dz);
+      if(d<.2){ p.prev = p.node; p.node = p.next; p.next = pickNext(p); if(Math.random()<.3) p.pause = 2+Math.random()*4; return; }
+      m.position.x += dx/d*p.speed*dt; m.position.z += dz/d*p.speed*dt;
+      m.rotation.y = Math.atan2(dx,dz); animLimbs(p,true,dt); return;
+    }
+    if(p.delay>0){ p.delay -= dt; m.visible = false; return; }
+    m.visible = true;
+    const last = p.i===p.route.length-1, w = p.route[p.i];
+    const dx = w.pt[0]-m.position.x, dz = w.pt[1]-m.position.z, d = Math.hypot(dx,dz);
+    p.f = (last && d<2.5) ? Math.max(0,p.f-dt*.8) : Math.min(1,p.f+dt*.8);
+    if(last && p.f<=0){ newRoute(p); p.delay = Math.random()*5; m.visible = false; return; }
+    let moving = true;
+    if(d<.12){
+      if(w.gate && !p.cross){ if(canCross(w.gate,p.need)){ p.cross = true; p.i++; } else moving = false; }
+      else if(!last) p.i++; else moving = false;
+    }
+    if(moving && d>.01){
+      const st = Math.min(d,p.speed*dt); m.position.x += dx/d*st; m.position.z += dz/d*st;
+      m.rotation.y = Math.atan2(dx,dz);
+    } else if(!moving){
+      const n = p.route[Math.min(p.i+1,p.route.length-1)].pt;
+      m.rotation.y = Math.atan2(n[0]-m.position.x,n[1]-m.position.z);
+    }
+    const lat = p.axis==='x' ? m.position.z : m.position.x;
+    m.position.y = Math.abs(lat)<7 ? .1 : .3;
+    m.scale.setScalar(1.25*Math.max(p.f,.001));
+    animLimbs(p,moving,dt);
+  });
+}
+
+// ---------- mobil ----------
+const palette = [0xd9453b,0x2f6fd6,0xe9e9e9,0x1c1c1c,0xf0b429,0x2e9b6a,0x8a8f96,0x7b4fc2];
+function makeCar(){
+  const g = new THREE.Group();
+  const bodyM = M(palette[Math.floor(Math.random()*palette.length)],{roughness:.4,metalness:.3});
+  const b = new THREE.Mesh(new THREE.BoxGeometry(CAR_L,.9,1.8),bodyM); b.position.y=.85; b.castShadow=true; g.add(b);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(2.1,.8,1.6),M(0x1b2733,{roughness:.2})); cab.position.set(-.2,1.6,0); cab.castShadow=true; g.add(cab);
+  const wm = M(0x111111);
+  for(const wx of [-1.3,1.3]) for(const wz of [-.95,.95]){
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(.42,.42,.3,12),wm);
+    w.rotation.x = Math.PI/2; w.position.set(wx,.42,wz); g.add(w);
+  }
+  const hl = new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xfff3c0,emissiveIntensity:0});
+  const tl = new THREE.MeshStandardMaterial({color:0x880000,emissive:0xff1a1a,emissiveIntensity:.4});
+  for(const z of [-.6,.6]){
+    const h = new THREE.Mesh(new THREE.BoxGeometry(.1,.25,.35),hl); h.position.set(CAR_L/2,.95,z); g.add(h);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(.1,.25,.35),tl); t.position.set(-CAR_L/2,.95,z); g.add(t);
+  }
+  g.userData = {hl,tl};
+  return g;
+}
+
+const lanes = [];
+const carsAll = [];
+approaches.forEach(ap => lanes.push({...ap,cars:[]}));
+function fillLanes(n){
+  lanes.forEach(L => {
+    while(L.cars.length > n){ const c = L.cars.pop(); scene.remove(c.mesh); carsAll.splice(carsAll.indexOf(c),1); }
+    while(L.cars.length < n){
+      const mesh = makeCar(); scene.add(mesh);
+      const minP = L.cars.reduce((m,c)=>Math.min(m,c.p),-LEN+20);
+      const c = {mesh,p:Math.min(minP-14,-LEN+20-(L.cars.length)*0), v:6+Math.random()*2, vmax:8+Math.random()*3, passed:false, lane:L};
+      c.p = -LEN + 10 + (n-L.cars.length-1)*((2*LEN-20)/n) + Math.random()*3;
+      L.cars.push(c); carsAll.push(c);
+    }
+  });
+}
+fillLanes(8);
+const ROT = {x1:0,x_1:Math.PI,z1:-Math.PI/2,z_1:Math.PI/2};
+
+// ---------- pengendali sinyal ----------
+let greenT = 8, yellowT = 2, redAll = 2;
+const phases = () => [
+  {n:'Utara–Selatan hijau',NS:'g',EW:'r',t:greenT},
+  {n:'Utara–Selatan kuning',NS:'y',EW:'r',t:yellowT},
+  {n:'Semua merah',NS:'r',EW:'r',t:redAll},
+  {n:'Timur–Barat hijau',NS:'r',EW:'g',t:greenT},
+  {n:'Timur–Barat kuning',NS:'r',EW:'y',t:yellowT},
+  {n:'Semua merah',NS:'r',EW:'r',t:redAll}
+];
+let pi = 0, pt = 0, state = {NS:'g',EW:'r'};
+function setLamps(){
+  for(const g of ['NS','EW']) lamps[g].forEach(s => {
+    s.r.emissiveIntensity = state[g]==='r'?2.2:.05;
+    s.y.emissiveIntensity = state[g]==='y'?2.2:.05;
+    s.g.emissiveIntensity = state[g]==='g'?2.2:.05;
+  });
+}
+const $ = id => document.getElementById(id);
+
+// ---------- simulasi ----------
+let paused = false, thru = 0, simT = 0;
+const BRAKE = 5, ACC = 3.5;
+function step(dt){
+  simT += dt;
+  const P = phases();
+  let phaseName, curDur = 0;
+  if(cfg.mode === 'allred'){
+    state = {NS:'r',EW:'r'}; phaseName = 'Darurat: semua merah';
+  } else {
+    pt += dt;
+    if(pt >= P[pi].t){ pt = 0; pi = (pi+1)%P.length; }
+    const cur = P[pi]; state = {NS:cur.NS,EW:cur.EW};
+    phaseName = cur.n; curDur = cur.t;
+  }
+  setLamps();
+
+  let waiting = 0;
+  lanes.forEach(L => {
+    const grpState = state[L.grp];
+    const sorted = [...L.cars].sort((a,b)=>a.p-b.p);
+    sorted.forEach((c,i) => {
+      const ahead = sorted[i+1];
+      let cap = c.vmax;
+      const dStop = STOP - c.p - CAR_L/2;   // jarak ke garis henti dari moncong
+      if(dStop > -0.5){
+        const canStop = dStop > c.v*c.v/(2*BRAKE);
+        if(grpState==='r' || (grpState==='y' && canStop)){
+          cap = Math.min(cap, Math.sqrt(2*BRAKE*.8*Math.max(dStop,0)));
+        }
+      }
+      if(ahead){
+        const gap = ahead.p - c.p - CAR_L - 1.2;
+        cap = Math.min(cap, Math.sqrt(2*BRAKE*.8*Math.max(gap,0)) + Math.max(ahead.v-1,0)*.0);
+      }
+      c.v += Math.max(-BRAKE*1.6*dt, Math.min(ACC*dt, cap - c.v));
+      if(c.v < 0) c.v = 0;
+      const old = c.p; c.p += c.v*dt;
+      if(old < 0 && c.p >= 0) thru++;
+      if(c.v < .3 && c.p < STOP) waiting++;
+      if(c.p > LEN){
+        const minP = Math.min(...L.cars.map(k=>k.p));
+        c.p = Math.min(-LEN+6, minP-CAR_L-3); c.v = c.vmax*.8;
+      }
+      const a = L.d*c.p;
+      const [x,z] = toXZ(L.axis,a,L.lat);
+      c.mesh.position.set(x,0,z);
+      c.mesh.rotation.y = ROT[L.axis+(L.d>0?'1':'_1')];
+      c.mesh.userData.tl.emissiveIntensity = (c.v < c.vmax-1.5) ? 2.2 : .4;
+    });
+  });
+  updatePeds(dt);
+  status = {phase:phaseName,NS:state.NS,EW:state.EW,waiting,thru,cars:carsAll.length,t:+pt.toFixed(1),dur:curDur,T:+simT.toFixed(1)};
+}
+
+// ---------- kamera orbit ----------
+let th = .8, ph = .95, rad = 85, autoRot = false;
+const target = new THREE.Vector3(0,3,0);
+function camUpdate(){
+  camera.position.set(
+    target.x + rad*Math.sin(ph)*Math.sin(th),
+    target.y + rad*Math.cos(ph),
+    target.z + rad*Math.sin(ph)*Math.cos(th));
+  camera.lookAt(target);
+}
+const el = renderer.domElement; let drag = false, lx = 0, ly = 0;
+el.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY;el.setPointerCapture(e.pointerId)});
+el.addEventListener('pointerup',()=>drag=false);
+el.addEventListener('pointermove',e=>{
+  if(!drag) return;
+  th -= (e.clientX-lx)*.006; ph = Math.max(.08,Math.min(1.5,ph-(e.clientY-ly)*.005));
+  lx=e.clientX; ly=e.clientY;
+});
+el.addEventListener('wheel',e=>{e.preventDefault(); rad = Math.max(18,Math.min(180,rad*(1+e.deltaY*.001)));},{passive:false});
+
+// ---------- kontrol UI ----------
+$('bRot').onclick = () => autoRot = !autoRot;
+$('bTop').onclick = () => {ph=.08; rad=95;};
+$('bIso').onclick = () => {ph=.95; rad=85; th=.8;};
+
+// ---------- sinkronisasi dengan HMI (server.py) ----------
+let cfg = {density:8,green:8,yellow:2,allred:2,paused:false,mode:'auto',reset:0};
+let status = {};
+const clamp = (v,a,b) => Math.max(a,Math.min(b,+v||a));
+function applyConfig(c){
+  if(!c) return;
+  const dens = clamp(c.density,3,14);
+  if(dens !== cfg.density) fillLanes(dens);
+  greenT = clamp(c.green,4,20); yellowT = clamp(c.yellow,1,5); redAll = clamp(c.allred,1,5);
+  paused = !!c.paused;
+  if(c.reset !== cfg.reset) thru = 0;
+  cfg = {...c, density:dens, mode: c.mode==='allred' ? 'allred' : 'auto'};
+}
+// ---------- HMI terintegrasi (panel di bawah simulasi) ----------
+const KEYS = ['green','yellow','allred','density'], UNIT = {green:' dtk',yellow:' dtk',allred:' dtk',density:''};
+const COLH = {r:'#ff4d4d',y:'#ffc83d',g:'#3ddc84'};
+let hist = [];
+function paintCfg(){
+  KEYS.forEach(k => { $('s_'+k).value = cfg[k]; $('v_'+k).textContent = cfg[k]+UNIT[k]; });
+  $('cycle').textContent = 2*(cfg.green+cfg.yellow+cfg.allred)+' dtk';
+  $('mAuto').classList.toggle('on',cfg.mode==='auto');
+  $('mRed').classList.toggle('on',cfg.mode==='allred');
+  $('bPause').classList.toggle('on',cfg.paused);
+  $('bPause').textContent = cfg.paused ? 'Lanjutkan' : 'Jeda';
+}
+const setCfg = patch => { applyConfig({...cfg,...patch}); paintCfg(); };
+KEYS.forEach(k => $('s_'+k).addEventListener('input',e => setCfg({[k]:+e.target.value})));
+$('mAuto').onclick = () => setCfg({mode:'auto'});
+$('mRed').onclick = () => setCfg({mode:'allred'});
+$('bPause').onclick = () => setCfg({paused:!cfg.paused});
+$('bReset').onclick = () => { hist = []; setCfg({reset:cfg.reset+1}); };
+$('hToggle').onclick = e => { const off = $('hbody').classList.toggle('off'); e.target.textContent = off ? 'Tampilkan' : 'Sembunyikan'; };
+function renderHmi(){
+  const st = status; if(!st.phase) return;
+  $('lN').style.fill = $('lS').style.fill = COLH[st.NS];
+  $('lW').style.fill = $('lE').style.fill = COLH[st.EW];
+  $('wait').textContent = st.waiting; $('thru').textContent = st.thru; $('cars').textContent = st.cars;
+  $('phase').textContent = st.phase;
+  $('prog').style.width = st.dur ? Math.min(100,st.t/st.dur*100)+'%' : '100%';
+  if(hist.length && st.thru < hist[hist.length-1].n) hist = [];
+  if(!hist.length || st.T > hist[hist.length-1].t) hist.push({t:st.T,n:st.thru});
+  hist = hist.filter(h => st.T-h.t <= 30);
+  const a = hist[0], b = hist[hist.length-1];
+  $('rate').textContent = (b.t-a.t >= 5) ? Math.round((b.n-a.n)/(b.t-a.t)*60)+' /mnt' : '…';
+}
+setInterval(renderHmi,250); paintCfg();
+let night = false;
+$('bNight').onclick = e => {
+  night = !night; e.target.textContent = night?'Siang':'Malam';
+  const bg = night?0x070b14:0x9cc9f0;
+  scene.background = new THREE.Color(bg); scene.fog = new THREE.Fog(bg, 120, 300);
+  hemi.intensity = night?.18:.7; sun.intensity = night?.12:.9;
+  sun.color.set(night?0x8fa8ff:0xffffff);
+  buildMats.forEach(m => m.emissiveIntensity = night?1:0);
+  streetLampMats.forEach(m => m.emissiveIntensity = night?2:0);
+  carsAll.forEach(c => c.mesh.userData.hl.emissiveIntensity = night?3:0);
+  nightFlag = night;
+};
+let nightFlag = false;
+scene.background = new THREE.Color(0x9cc9f0); scene.fog = new THREE.Fog(0x9cc9f0,120,300);
+
+const simEl = document.getElementById('sim');
+function fit(){
+  const w = Math.max(1,simEl.clientWidth), h = Math.max(1,simEl.clientHeight);
+  renderer.setSize(w,h); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(fit).observe(simEl); fit();
+
+// ---------- loop ----------
+let last = performance.now();
+function loop(now){
+  const dt = Math.min((now-last)/1000,.05); last = now;
+  if(!paused) step(dt);
+  animateFountain(now/1000);
+  if(nightFlag) carsAll.forEach(c => c.mesh.userData.hl.emissiveIntensity = 3);
+  if(autoRot && !drag) th += dt*.15;
+  camUpdate();
+  renderer.render(scene,camera);
+  requestAnimationFrame(loop);
+}
+camUpdate(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
